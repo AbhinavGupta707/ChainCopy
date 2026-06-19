@@ -98,7 +98,8 @@ final class ClipboardStore: ObservableObject {
         snapshotProvider: any PasteboardSnapshotProviding = NSPasteboardSnapshotProvider()
     ) {
         let persistedState = try? persistence.load()
-        var resolvedSettings = settings ?? persistedState?.settings ?? ClipboardSettings()
+        let shouldUsePersistedSettings = settings == nil && items == nil
+        var resolvedSettings = settings ?? (shouldUsePersistedSettings ? persistedState?.settings : nil) ?? ClipboardSettings()
 
         if let isCaptureEnabled {
             resolvedSettings.isCaptureEnabled = isCaptureEnabled

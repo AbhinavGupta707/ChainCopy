@@ -4,7 +4,11 @@ import XCTest
 @MainActor
 final class ClipboardStoreCaptureTests: XCTestCase {
     func testStoreAppliesMaxItemLimitThroughCapturePath() {
-        let store = ClipboardStore(settings: ClipboardSettings(maxItemCount: 2))
+        let store = ClipboardStore(
+            settings: ClipboardSettings(maxItemCount: 2),
+            isAppendModeEnabled: true,
+            persistence: NoOpClipboardPersistence()
+        )
 
         store.ingest(snapshot: snapshot("Alpha", changeCount: 1), method: .appendModeClipboardChange)
         store.ingest(snapshot: snapshot("Beta", changeCount: 2), method: .appendModeClipboardChange)
@@ -14,7 +18,11 @@ final class ClipboardStoreCaptureTests: XCTestCase {
     }
 
     func testStoreCapturesInClipboardOrder() {
-        let store = ClipboardStore()
+        let store = ClipboardStore(
+            settings: ClipboardSettings(),
+            isAppendModeEnabled: true,
+            persistence: NoOpClipboardPersistence()
+        )
 
         store.ingest(snapshot: snapshot("Alpha", changeCount: 1), method: .appendModeClipboardChange)
         store.ingest(snapshot: snapshot("Beta", changeCount: 2), method: .appendModeClipboardChange)
@@ -28,8 +36,11 @@ final class ClipboardStoreCaptureTests: XCTestCase {
         let writer = RecordingPasteboardWriter(nextChangeCount: 99)
         let store = ClipboardStore(
             items: [ClipItem(text: "Alpha"), ClipItem(text: "Beta")],
+            settings: ClipboardSettings(),
+            isAppendModeEnabled: true,
             pasteboardWriter: writer,
-            ownWriteTracker: tracker
+            ownWriteTracker: tracker,
+            persistence: NoOpClipboardPersistence()
         )
 
         store.copyComposedToPasteboard()
@@ -54,7 +65,12 @@ final class ClipboardStoreCaptureTests: XCTestCase {
     }
 
     func testComposedCopyMarkerAlsoSuppressesRecapture() {
-        let store = ClipboardStore(items: [ClipItem(text: "Alpha")])
+        let store = ClipboardStore(
+            items: [ClipItem(text: "Alpha")],
+            settings: ClipboardSettings(),
+            isAppendModeEnabled: true,
+            persistence: NoOpClipboardPersistence()
+        )
 
         let decision = store.ingest(
             snapshot: PasteboardCaptureSnapshot(
@@ -76,6 +92,16 @@ final class ClipboardStoreCaptureTests: XCTestCase {
             content: .plainText(text)
         )
     }
+}
+
+private struct NoOpClipboardPersistence: ClipboardPersistence {
+    func load() throws -> PersistedClipboardState? {
+        nil
+    }
+
+    func save(_ state: PersistedClipboardState) throws {}
+
+    func clearItems() throws {}
 }
 
 @MainActor
