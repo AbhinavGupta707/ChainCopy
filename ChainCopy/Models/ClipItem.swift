@@ -33,4 +33,20 @@ struct ClipItem: Identifiable, Hashable, Codable {
         let endIndex = collapsed.index(collapsed.startIndex, offsetBy: 72)
         return String(collapsed[..<endIndex]) + "..."
     }
+
+    var characterCount: Int {
+        text.count
+    }
+
+    var lineCount: Int {
+        max(1, text.split(whereSeparator: \.isNewline).count)
+    }
+
+    var sourceDisplayName: String {
+        sourceAppName ?? "Unknown App"
+    }
+
+    var metadataSummary: String {
+        "\(sourceDisplayName) - \(DateFormatting.shortTime.string(from: capturedAt)) - \(characterCount) chars"
+    }
 }

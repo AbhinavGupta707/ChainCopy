@@ -8,17 +8,54 @@ struct ChainCopyApp: App {
     @State private var pasteboardMonitor = PasteboardMonitor()
 
     var body: some Scene {
-        MenuBarExtra("ChainCopy", systemImage: "link.badge.plus") {
+        MenuBarExtra {
             MenuBarView(store: store)
-                .frame(width: 380)
+                .frame(width: 390)
                 .onAppear {
                     pasteboardMonitor.start(store: store)
                 }
+        } label: {
+            Label(store.menuBarDisplayTitle, systemImage: store.menuBarSystemImage)
         }
         .menuBarExtraStyle(.window)
 
         WindowGroup("ChainCopy", id: "main") {
             RootView(store: store)
+        }
+        .commands {
+            CommandMenu("Chain") {
+                Button("Append Clipboard") {
+                    store.appendCurrentPasteboard()
+                }
+                .keyboardShortcut("c", modifiers: [.control, .command, .shift])
+                .disabled(!store.isCaptureEnabled)
+
+                Button(store.isAppendModeEnabled ? "Turn Append Mode Off" : "Turn Append Mode On") {
+                    store.setAppendModeEnabled(!store.isAppendModeEnabled)
+                }
+                .keyboardShortcut("a", modifiers: [.control, .command])
+                .disabled(!store.isCaptureEnabled)
+
+                Divider()
+
+                Button("Copy Chain") {
+                    store.copyComposedToPasteboard()
+                }
+                .keyboardShortcut("v", modifiers: [.control, .command])
+                .disabled(store.composedText.isEmpty)
+
+                Button("Clear Chain") {
+                    store.clear()
+                }
+                .keyboardShortcut("x", modifiers: [.control, .command])
+                .disabled(store.items.isEmpty)
+
+                Divider()
+
+                Button(store.isCaptureEnabled ? "Pause ChainCopy" : "Resume ChainCopy") {
+                    store.setCaptureEnabled(!store.isCaptureEnabled)
+                }
+            }
         }
         .windowResizability(.contentSize)
         .defaultSize(width: 860, height: 560)
