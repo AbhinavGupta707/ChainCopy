@@ -1,15 +1,14 @@
-import AppKit
 import Foundation
 
 @MainActor
 final class PasteboardMonitor {
-    private let pasteboard: NSPasteboard
+    private let snapshotProvider: any PasteboardSnapshotProviding
     private var lastChangeCount: Int
     private var timer: Timer?
 
-    init(pasteboard: NSPasteboard = .general) {
-        self.pasteboard = pasteboard
-        self.lastChangeCount = pasteboard.changeCount
+    init(snapshotProvider: any PasteboardSnapshotProviding = NSPasteboardSnapshotProvider()) {
+        self.snapshotProvider = snapshotProvider
+        self.lastChangeCount = snapshotProvider.changeCount
     }
 
     func start(store: ClipboardStore) {
@@ -17,7 +16,7 @@ final class PasteboardMonitor {
             return
         }
 
-        lastChangeCount = pasteboard.changeCount
+        lastChangeCount = snapshotProvider.changeCount
         timer = Timer.scheduledTimer(withTimeInterval: 0.35, repeats: true) { [weak self, weak store] _ in
             Task { @MainActor in
                 guard let self, let store else {
@@ -35,17 +34,17 @@ final class PasteboardMonitor {
     }
 
     private func poll(store: ClipboardStore) {
-        let changeCount = pasteboard.changeCount
+        let changeCount = snapshotProvider.changeCount
         guard changeCount != lastChangeCount else {
             return
         }
 
         lastChangeCount = changeCount
 
-        guard store.isCaptureEnabled, let text = pasteboard.string(forType: .string), !store.ownsPasteboardText(text) else {
+        guard store.isCaptureEnabled else {
             return
         }
 
-        store.ingest(text: text)
+        store.ingest(snapshot: snapshotProvider.snapshot(), method: .appendModeClipboardChange)
     }
 }

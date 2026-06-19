@@ -7,15 +7,20 @@ struct SettingsView: View {
         TabView {
             Form {
                 Toggle("Capture clipboard changes", isOn: $store.isCaptureEnabled)
+                Toggle("Ignore adjacent duplicates", isOn: $store.suppressAdjacentDuplicates)
 
                 Picker("Separator", selection: $store.separator) {
-                    Text("New Line").tag("\n")
                     Text("Blank Line").tag("\n\n")
+                    Text("New Line").tag("\n")
                     Text("Space").tag(" ")
                 }
 
                 Stepper(value: $store.maxItemCount, in: 20...500, step: 20) {
                     Text("Keep \(store.maxItemCount) items")
+                }
+
+                Stepper(value: $store.maxItemSizeBytes, in: 1_024...10_000_000, step: 1_024) {
+                    Text("Max item size \(store.maxItemSizeBytes / 1_024) KB")
                 }
             }
             .formStyle(.grouped)
@@ -34,7 +39,7 @@ struct SettingsView: View {
                 Label("About", systemImage: "info.circle")
             }
         }
-        .frame(width: 460, height: 280)
+        .frame(width: 460, height: 340)
         .padding(20)
     }
 }
