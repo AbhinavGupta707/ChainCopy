@@ -1,0 +1,55 @@
+name: ChainCopy
+
+options:
+  minimumXcodeGenVersion: 2.42.0
+  deploymentTarget:
+    macOS: "14.0"
+  createIntermediateGroups: true
+
+settings:
+  base:
+    SWIFT_VERSION: 6.0
+    MACOSX_DEPLOYMENT_TARGET: "14.0"
+    ENABLE_USER_SCRIPT_SANDBOXING: YES
+    CLANG_ANALYZER_LOCALIZABILITY_NONLOCALIZED: YES
+
+targets:
+  ChainCopy:
+    type: application
+    platform: macOS
+    deploymentTarget: "14.0"
+    sources:
+      - path: ChainCopy
+    info:
+      path: ChainCopy/Resources/Info.plist
+    entitlements:
+      path: ChainCopy/Resources/ChainCopy.entitlements
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.abhinavgupta.ChainCopy
+        PRODUCT_NAME: ChainCopy
+        MARKETING_VERSION: 0.1.0
+        CURRENT_PROJECT_VERSION: 1
+        CODE_SIGN_STYLE: Manual
+        CODE_SIGN_IDENTITY: "-"
+        DEVELOPMENT_TEAM: ""
+        ENABLE_HARDENED_RUNTIME: YES
+        GENERATE_INFOPLIST_FILE: NO
+    scheme:
+      testTargets:
+        - ChainCopyTests
+
+  ChainCopyTests:
+    type: bundle.unit-test
+    platform: macOS
+    deploymentTarget: "14.0"
+    sources:
+      - path: ChainCopyTests
+    dependencies:
+      - target: ChainCopy
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.abhinavgupta.ChainCopyTests
+        CODE_SIGN_STYLE: Manual
+        CODE_SIGN_IDENTITY: "-"
+        GENERATE_INFOPLIST_FILE: YES

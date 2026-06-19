@@ -1,0 +1,21 @@
+.DS_Store
+.swiftpm/
+.build/
+build/
+dist/
+DerivedData/
+
+# XcodeGen output
+ChainCopy.xcodeproj/
+
+# Xcode user state
+*.xcworkspace/xcuserdata/
+*.xcodeproj/xcuserdata/
+*.xcuserstate
+
+# Local secrets and signing material
+.env
+*.p12
+*.mobileprovision
+*.provisionprofile
+*.xcconfig.local
