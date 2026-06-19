@@ -42,10 +42,30 @@ final class PasteboardMonitor {
 
         lastChangeCount = changeCount
 
-        guard store.isCaptureEnabled, let text = pasteboard.string(forType: .string), !store.ownsPasteboardText(text) else {
+        guard store.isCaptureEnabled else {
             return
         }
 
-        store.ingest(text: text)
+        let sourceApplication = NSWorkspace.shared.frontmostApplication
+        let pasteboardTypes = Set((pasteboard.types ?? []).map(\.rawValue))
+        let metadataDecision = store.metadataPrivacyDecision(
+            pasteboardTypes: pasteboardTypes,
+            sourceAppName: sourceApplication?.localizedName,
+            sourceAppBundleIdentifier: sourceApplication?.bundleIdentifier
+        )
+        guard metadataDecision.isAllowed else {
+            return
+        }
+
+        guard let text = pasteboard.string(forType: .string), !store.ownsPasteboardText(text) else {
+            return
+        }
+
+        store.ingest(
+            text: text,
+            sourceAppName: sourceApplication?.localizedName,
+            sourceAppBundleIdentifier: sourceApplication?.bundleIdentifier,
+            pasteboardTypes: pasteboardTypes
+        )
     }
 }
