@@ -23,11 +23,32 @@ struct SettingsView: View {
         _sensitiveContentPatternsText = State(initialValue: store.settings.sensitiveContentPatterns.joined(separator: "\n"))
     }
 
+    private var captureBinding: Binding<Bool> {
+        Binding {
+            store.isCaptureEnabled
+        } set: { enabled in
+            store.setCaptureEnabled(enabled)
+        }
+    }
+
+    private var appendModeBinding: Binding<Bool> {
+        Binding {
+            store.isAppendModeEnabled
+        } set: { enabled in
+            store.setAppendModeEnabled(enabled)
+        }
+    }
+
     var body: some View {
         TabView {
             generalTab
                 .tabItem {
                     Label("General", systemImage: "switch.2")
+                }
+
+            composeTab
+                .tabItem {
+                    Label("Compose", systemImage: "text.line.first.and.arrowtriangle.forward")
                 }
 
             privacyTab
@@ -79,42 +100,76 @@ struct SettingsView: View {
 
     private var generalTab: some View {
         Form {
-            Toggle("Capture clipboard changes", isOn: captureBinding)
-            Toggle("Ignore adjacent duplicates", isOn: $store.suppressAdjacentDuplicates)
-
-            Picker("Separator", selection: $store.separator) {
-                Text("Blank Line").tag("\n\n")
-                Text("New Line").tag("\n")
-                Text("Space").tag(" ")
+            Section("Capture") {
+                Toggle("Capture enabled", isOn: captureBinding)
+                Toggle("Append Mode", isOn: appendModeBinding)
+                    .disabled(!store.isCaptureEnabled)
+                Toggle("Ignore adjacent duplicates", isOn: $store.suppressAdjacentDuplicates)
             }
 
-            Stepper(value: $store.maxItemCount, in: 1...500, step: 10) {
-                Text("Keep \(store.maxItemCount) items")
+            Section("Retention") {
+                Stepper(value: $store.maxItemCount, in: 1...500, step: 10) {
+                    Text("Keep \(store.maxItemCount) items")
+                }
+
+                Stepper(value: maxItemSizeBinding, in: 1_024...10_000_000, step: 1_024) {
+                    Text("Max item size \(formattedByteCount(store.maxItemSizeBytes))")
+                }
             }
 
-            Stepper(value: maxItemSizeBinding, in: 1_024...10_000_000, step: 1_024) {
-                Text("Max item size \(formattedByteCount(store.maxItemSizeBytes))")
+            Section {
+                Button(role: .destructive) {
+                    store.clear()
+                } label: {
+                    Label("Clear Current Chain", systemImage: "trash")
+                }
+                .disabled(store.items.isEmpty)
+            }
+        }
+        .formStyle(.grouped)
+    }
+
+    private var composeTab: some View {
+        Form {
+            Section("Output") {
+                SeparatorPicker(store: store)
+
+                TextField("Custom separator", text: $store.separator)
+                    .font(.system(.body, design: .monospaced))
+                    .textFieldStyle(.roundedBorder)
+
+                LabeledContent("Preview", value: store.separatorPreset.preview)
             }
 
-            Toggle("Save clipboard contents locally", isOn: persistClipboardContentsBinding)
-            Toggle("Clear stored items on quit", isOn: clearHistoryOnQuitBinding)
+            Section {
+                Button {
+                    store.copyComposedToPasteboard()
+                } label: {
+                    Label("Copy Joined Block", systemImage: "doc.on.clipboard")
+                }
+                .disabled(store.composedText.isEmpty)
+            }
         }
         .formStyle(.grouped)
     }
 
     private var privacyTab: some View {
         Form {
-            privacyTextEditor("Ignored app names", text: $ignoredAppNamesText)
-            privacyTextEditor("Ignored bundle identifiers", text: $ignoredAppBundleIdentifiersText)
-            privacyTextEditor("Ignored pasteboard types", text: $ignoredPasteboardTypesText)
-            privacyTextEditor("Sensitive text patterns", text: $sensitiveContentPatternsText)
-
-            Button(role: .destructive) {
-                store.clear()
-            } label: {
-                Label("Clear Current Chain", systemImage: "trash")
+            Section("Local Data") {
+                Toggle("Save clipboard contents locally", isOn: persistClipboardContentsBinding)
+                Toggle("Clear stored items on quit", isOn: clearHistoryOnQuitBinding)
+                LabeledContent("Cloud sync", value: "Off")
             }
-            .disabled(store.items.isEmpty)
+
+            Section("Ignored Sources") {
+                privacyTextEditor("App names", text: $ignoredAppNamesText)
+                privacyTextEditor("Bundle identifiers", text: $ignoredAppBundleIdentifiersText)
+                privacyTextEditor("Pasteboard types", text: $ignoredPasteboardTypesText)
+            }
+
+            Section("Sensitive Content") {
+                privacyTextEditor("Regex patterns", text: $sensitiveContentPatternsText)
+            }
         }
         .formStyle(.grouped)
     }
@@ -185,14 +240,6 @@ struct SettingsView: View {
             LabeledContent("License provider", value: "Not configured")
         }
         .formStyle(.grouped)
-    }
-
-    private var captureBinding: Binding<Bool> {
-        Binding {
-            store.isCaptureEnabled
-        } set: { enabled in
-            store.setCaptureEnabled(enabled)
-        }
     }
 
     private var persistClipboardContentsBinding: Binding<Bool> {

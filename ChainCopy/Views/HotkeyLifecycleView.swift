@@ -22,7 +22,7 @@ struct HotkeyLifecycleView: View {
     private func handle(_ action: ShortcutAction) {
         switch action {
         case .toggleCapture:
-            store.setCaptureEnabled(!store.isCaptureEnabled)
+            store.setAppendModeEnabled(!store.isAppendModeEnabled)
         case .copyChain:
             store.copyComposedToPasteboard()
         case .pasteChain:

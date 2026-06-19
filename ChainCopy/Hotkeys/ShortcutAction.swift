@@ -14,7 +14,7 @@ enum ShortcutAction: UInt32, CaseIterable, Codable, Hashable, Identifiable {
     var title: String {
         switch self {
         case .toggleCapture:
-            return "Toggle Capture"
+            return "Toggle Append Mode"
         case .copyChain:
             return "Copy Chain"
         case .pasteChain:
@@ -29,7 +29,7 @@ enum ShortcutAction: UInt32, CaseIterable, Codable, Hashable, Identifiable {
     var settingsDescription: String {
         switch self {
         case .toggleCapture:
-            return "Turns clipboard capture on or off."
+            return "Turns Append Mode on or off."
         case .copyChain:
             return "Writes the chain to the clipboard."
         case .pasteChain:

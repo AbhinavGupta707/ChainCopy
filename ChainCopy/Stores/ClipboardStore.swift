@@ -1,6 +1,7 @@
 import AppKit
 import Combine
 import Foundation
+import SwiftUI
 
 @MainActor
 final class ClipboardStore: ObservableObject {
@@ -22,6 +23,8 @@ final class ClipboardStore: ObservableObject {
             }
         }
     }
+
+    @Published var isAppendModeEnabled: Bool
 
     @Published var maxItemCount: Int {
         didSet {
@@ -55,6 +58,8 @@ final class ClipboardStore: ObservableObject {
         }
     }
 
+    @Published var lastInfoMessage: String?
+    @Published var lastErrorMessage: String?
     @Published private(set) var settings: ClipboardSettings
     @Published private(set) var lastPersistenceError: Error?
     @Published private(set) var isAccessibilityTrusted: Bool
@@ -67,6 +72,7 @@ final class ClipboardStore: ObservableObject {
     private let persistence: any ClipboardPersistence
     private let privacyFilter: ClipboardPrivacyFilter
     private let pasteAutomationService: PasteAutomationService
+    private let snapshotProvider: any PasteboardSnapshotProviding
     private var lastPasteboardWrite: String?
     private var isReadyToPersist = false
     private var isApplyingRetention = false
@@ -77,6 +83,7 @@ final class ClipboardStore: ObservableObject {
         items: [ClipItem]? = nil,
         settings: ClipboardSettings? = nil,
         isCaptureEnabled: Bool? = nil,
+        isAppendModeEnabled: Bool = false,
         maxItemCount: Int? = nil,
         maxItemSizeBytes: Int? = nil,
         suppressAdjacentDuplicates: Bool? = nil,
@@ -87,7 +94,8 @@ final class ClipboardStore: ObservableObject {
         ownWriteTracker: OwnPasteboardWriteTracker = OwnPasteboardWriteTracker(),
         persistence: any ClipboardPersistence = FileClipboardPersistenceStore.applicationSupportStore(),
         privacyFilter: ClipboardPrivacyFilter = ClipboardPrivacyFilter(),
-        pasteAutomationService: PasteAutomationService = PasteAutomationService()
+        pasteAutomationService: PasteAutomationService = PasteAutomationService(),
+        snapshotProvider: any PasteboardSnapshotProviding = NSPasteboardSnapshotProvider()
     ) {
         let persistedState = try? persistence.load()
         var resolvedSettings = settings ?? persistedState?.settings ?? ClipboardSettings()
@@ -119,6 +127,7 @@ final class ClipboardStore: ObservableObject {
 
         self.items = PersistedClipboardState.retainedItems(resolvedItems, settings: resolvedSettings)
         self.isCaptureEnabled = resolvedSettings.isCaptureEnabled
+        self.isAppendModeEnabled = isAppendModeEnabled && resolvedSettings.isCaptureEnabled
         self.maxItemCount = resolvedSettings.maxItemCount
         self.maxItemSizeBytes = resolvedSettings.maxItemSizeBytes
         self.suppressAdjacentDuplicates = resolvedSettings.suppressAdjacentDuplicates
@@ -131,6 +140,7 @@ final class ClipboardStore: ObservableObject {
         self.persistence = persistence
         self.privacyFilter = privacyFilter
         self.pasteAutomationService = pasteAutomationService
+        self.snapshotProvider = snapshotProvider
         self.isAccessibilityTrusted = pasteAutomationService.isAccessibilityTrusted()
         self.isReadyToPersist = true
 
@@ -154,6 +164,51 @@ final class ClipboardStore: ObservableObject {
         composedText.count
     }
 
+    var separatorPreset: SeparatorPreset {
+        SeparatorPreset.matching(separator)
+    }
+
+    var visualState: ChainVisualState {
+        if lastErrorMessage != nil {
+            return .error
+        }
+
+        if !isCaptureEnabled {
+            return .paused
+        }
+
+        if isAppendModeEnabled {
+            return .appendMode
+        }
+
+        return items.isEmpty ? .idle : .collecting
+    }
+
+    var menuBarDisplayTitle: String {
+        if isAppendModeEnabled || !items.isEmpty {
+            return "\(items.count)"
+        }
+
+        return "ChainCopy"
+    }
+
+    var menuBarSystemImage: String {
+        switch visualState {
+        case .idle:
+            return "link.badge.plus"
+        case .collecting:
+            return "text.badge.plus"
+        case .appendMode:
+            return "bolt.circle.fill"
+        case .paused:
+            return "pause.circle"
+        case .permissionNeeded:
+            return "hand.raised"
+        case .error:
+            return "exclamationmark.triangle"
+        }
+    }
+
     func updateSettings(_ update: (inout ClipboardSettings) -> Void) {
         var updatedSettings = settings
         update(&updatedSettings)
@@ -165,8 +220,13 @@ final class ClipboardStore: ObservableObject {
         text: String,
         sourceAppName: String? = NSWorkspace.shared.frontmostApplication?.localizedName,
         sourceAppBundleIdentifier: String? = NSWorkspace.shared.frontmostApplication?.bundleIdentifier,
-        pasteboardTypes: Set<String> = [PasteboardTypeNames.string]
+        pasteboardTypes: Set<String> = [PasteboardTypeNames.string],
+        requiresAppendMode: Bool = false
     ) -> Bool {
+        guard !requiresAppendMode || isAppendModeEnabled else {
+            return false
+        }
+
         let snapshot = PasteboardCaptureSnapshot(
             changeCount: -1,
             types: pasteboardTypes,
@@ -186,6 +246,10 @@ final class ClipboardStore: ObservableObject {
 
     @discardableResult
     func ingest(snapshot: PasteboardCaptureSnapshot, method: CaptureMethod) -> CaptureDecision {
+        if method == .appendModeClipboardChange, !isAppendModeEnabled {
+            return .ignored(.captureDisabled)
+        }
+
         let decision = captureEngine.evaluate(
             snapshot: snapshot,
             method: method,
@@ -194,23 +258,63 @@ final class ClipboardStore: ObservableObject {
             ownWriteTracker: ownWriteTracker
         )
 
-        if case let .captured(item) = decision {
+        switch decision {
+        case let .captured(item):
             appendItem(item)
+            lastErrorMessage = nil
+            lastInfoMessage = "Added \(items.count == 1 ? "first snippet" : "\(items.count) snippets")"
+        case let .ignored(reason):
+            if method != .appendModeClipboardChange {
+                lastErrorMessage = message(for: reason)
+            }
         }
 
         return decision
     }
 
+    func appendCurrentPasteboard() {
+        let decision = ingest(snapshot: snapshotProvider.snapshot(), method: .appendCurrentClipboard)
+        if case .captured = decision {
+            return
+        }
+
+        if case .ignored(.unsupportedContent) = decision {
+            lastErrorMessage = "The current clipboard does not contain text ChainCopy can append."
+        }
+    }
+
     func remove(_ item: ClipItem) {
         items.removeAll { $0.id == item.id }
+        lastInfoMessage = "Removed snippet"
     }
 
     func clear() {
         items.removeAll()
+        lastPasteAutomationResult = nil
+        lastInfoMessage = "Chain cleared"
+        lastErrorMessage = nil
     }
 
     func setCaptureEnabled(_ enabled: Bool) {
         isCaptureEnabled = enabled
+        if enabled {
+            lastInfoMessage = "ChainCopy resumed"
+        } else {
+            isAppendModeEnabled = false
+            lastInfoMessage = "ChainCopy paused"
+        }
+        lastErrorMessage = nil
+    }
+
+    func setAppendModeEnabled(_ enabled: Bool) {
+        guard isCaptureEnabled || !enabled else {
+            lastErrorMessage = "Resume ChainCopy before enabling Append Mode."
+            return
+        }
+
+        isAppendModeEnabled = enabled
+        lastErrorMessage = nil
+        lastInfoMessage = enabled ? "Append Mode on" : "Append Mode off"
     }
 
     func handleApplicationWillTerminate() {
@@ -236,8 +340,69 @@ final class ClipboardStore: ObservableObject {
         items[index].isPinned.toggle()
     }
 
+    func updateText(for id: ClipItem.ID, text: String) {
+        guard let index = items.firstIndex(where: { $0.id == id }) else {
+            return
+        }
+
+        items[index].text = text
+        items[index].contentHash = ContentHasher.hash(text)
+        items[index].contentKind = .text
+    }
+
+    func move(from source: IndexSet, to destination: Int) {
+        items.move(fromOffsets: source, toOffset: destination)
+    }
+
+    func move(_ item: ClipItem, direction: ChainMoveDirection) {
+        guard let index = items.firstIndex(where: { $0.id == item.id }) else {
+            return
+        }
+
+        let targetIndex: Int
+        switch direction {
+        case .up:
+            targetIndex = max(items.startIndex, index - 1)
+        case .down:
+            targetIndex = min(items.index(before: items.endIndex), index + 1)
+        }
+
+        guard targetIndex != index else {
+            return
+        }
+
+        items.swapAt(index, targetIndex)
+    }
+
+    func applySeparatorPreset(_ preset: SeparatorPreset) {
+        separator = preset.separator
+        lastInfoMessage = "Separator set to \(preset.title.lowercased())"
+    }
+
     func copyComposedToPasteboard() {
-        writeToPasteboard(composedText)
+        let text = composedText
+        guard !text.isEmpty else {
+            lastErrorMessage = "There is no chain to copy yet."
+            return
+        }
+
+        guard writeToPasteboard(text) else {
+            lastErrorMessage = "Could not write the chain to the clipboard."
+            return
+        }
+
+        lastInfoMessage = "Copied joined block"
+        lastErrorMessage = nil
+    }
+
+    func copyItemToPasteboard(_ item: ClipItem) {
+        guard writeToPasteboard(item.text) else {
+            lastErrorMessage = "Could not copy the snippet."
+            return
+        }
+
+        lastInfoMessage = "Copied snippet"
+        lastErrorMessage = nil
     }
 
     @discardableResult
@@ -245,10 +410,16 @@ final class ClipboardStore: ObservableObject {
         let text = composedText
         guard !text.isEmpty else {
             lastPasteAutomationResult = .emptyChain
+            lastErrorMessage = PasteAutomationResult.emptyChain.message
             return .emptyChain
         }
 
-        writeToPasteboard(text)
+        guard writeToPasteboard(text) else {
+            lastPasteAutomationResult = .emptyChain
+            lastErrorMessage = "Could not write the chain to the clipboard."
+            return .emptyChain
+        }
+
         let outcome = pasteAutomationService.sendPasteIfPermitted()
         refreshAccessibilityStatus()
 
@@ -259,6 +430,8 @@ final class ClipboardStore: ObservableObject {
             lastPasteAutomationResult = .copiedPermissionRequired
         }
 
+        lastInfoMessage = lastPasteAutomationResult?.message
+        lastErrorMessage = nil
         return lastPasteAutomationResult ?? .emptyChain
     }
 
@@ -272,6 +445,11 @@ final class ClipboardStore: ObservableObject {
 
     func openAccessibilitySettings() {
         pasteAutomationService.openAccessibilitySettings()
+    }
+
+    func dismissFeedback() {
+        lastInfoMessage = nil
+        lastErrorMessage = nil
     }
 
     func ownsPasteboardText(_ text: String) -> Bool {
@@ -298,13 +476,15 @@ final class ClipboardStore: ObservableObject {
         items.append(item)
     }
 
-    private func writeToPasteboard(_ text: String) {
+    @discardableResult
+    private func writeToPasteboard(_ text: String) -> Bool {
         guard !text.isEmpty, let changeCount = pasteboardWriter.writeString(text, ownedByChainCopy: true) else {
-            return
+            return false
         }
 
         lastPasteboardWrite = text
         ownWriteTracker.record(changeCount: changeCount)
+        return true
     }
 
     private func updateSettingFromLegacyBinding(_ update: (inout ClipboardSettings) -> Void) {
@@ -328,6 +508,10 @@ final class ClipboardStore: ObservableObject {
         suppressAdjacentDuplicates = normalizedSettings.suppressAdjacentDuplicates
         separator = normalizedSettings.separator
         isApplyingSettings = false
+
+        if !normalizedSettings.isCaptureEnabled {
+            isAppendModeEnabled = false
+        }
 
         enforceRetention()
         persistState()
@@ -367,6 +551,29 @@ final class ClipboardStore: ObservableObject {
             lastPersistenceError = error
         }
     }
+
+    private func message(for reason: CaptureRejectionReason) -> String {
+        switch reason {
+        case .captureDisabled:
+            return "Capture is paused or Append Mode is off."
+        case .ownWrite:
+            return "ChainCopy skipped its own clipboard write."
+        case .privacy(.ignoredPasteboardType):
+            return "This clipboard item was skipped by privacy rules."
+        case .privacy(.ignoredSourceApp):
+            return "This source app is ignored by privacy settings."
+        case .privacy(.emptyText):
+            return "The clipboard text is empty."
+        case .privacy(.oversizedText):
+            return "The clipboard text is larger than the current limit."
+        case .privacy(.sensitiveContentPattern):
+            return "This clipboard item matched a sensitive-content rule."
+        case .unsupportedContent:
+            return "The current clipboard does not contain text ChainCopy can append."
+        case .duplicateOfLatestItem:
+            return "That snippet is already the latest item in the chain."
+        }
+    }
 }
 
 enum PasteAutomationResult: Equatable {
@@ -384,4 +591,9 @@ enum PasteAutomationResult: Equatable {
             return "Nothing to paste yet."
         }
     }
+}
+
+enum ChainMoveDirection {
+    case up
+    case down
 }

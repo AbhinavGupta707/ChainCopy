@@ -25,4 +25,12 @@ final class ClipboardComposerTests: XCTestCase {
 
         XCTAssertEqual(result, "")
     }
+
+    func testComposeFormatsBulletPreset() {
+        let composer = ClipboardComposer()
+
+        let result = composer.compose(["Alpha", "Beta"], separator: SeparatorPreset.bullets.separator)
+
+        XCTAssertEqual(result, "- Alpha\n- Beta")
+    }
 }
