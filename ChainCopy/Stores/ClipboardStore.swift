@@ -57,6 +57,8 @@ final class ClipboardStore: ObservableObject {
 
     @Published private(set) var settings: ClipboardSettings
     @Published private(set) var lastPersistenceError: Error?
+    @Published private(set) var isAccessibilityTrusted: Bool
+    @Published private(set) var lastPasteAutomationResult: PasteAutomationResult?
 
     private let composer: ClipboardComposer
     private let captureEngine: CaptureEngine
@@ -64,6 +66,7 @@ final class ClipboardStore: ObservableObject {
     private let ownWriteTracker: OwnPasteboardWriteTracker
     private let persistence: any ClipboardPersistence
     private let privacyFilter: ClipboardPrivacyFilter
+    private let pasteAutomationService: PasteAutomationService
     private var lastPasteboardWrite: String?
     private var isReadyToPersist = false
     private var isApplyingRetention = false
@@ -83,7 +86,8 @@ final class ClipboardStore: ObservableObject {
         pasteboardWriter: any PasteboardStringWriting = NSPasteboardStringWriter(),
         ownWriteTracker: OwnPasteboardWriteTracker = OwnPasteboardWriteTracker(),
         persistence: any ClipboardPersistence = FileClipboardPersistenceStore.applicationSupportStore(),
-        privacyFilter: ClipboardPrivacyFilter = ClipboardPrivacyFilter()
+        privacyFilter: ClipboardPrivacyFilter = ClipboardPrivacyFilter(),
+        pasteAutomationService: PasteAutomationService = PasteAutomationService()
     ) {
         let persistedState = try? persistence.load()
         var resolvedSettings = settings ?? persistedState?.settings ?? ClipboardSettings()
@@ -126,6 +130,8 @@ final class ClipboardStore: ObservableObject {
         self.ownWriteTracker = ownWriteTracker
         self.persistence = persistence
         self.privacyFilter = privacyFilter
+        self.pasteAutomationService = pasteAutomationService
+        self.isAccessibilityTrusted = pasteAutomationService.isAccessibilityTrusted()
         self.isReadyToPersist = true
 
         addTerminationObserver()
@@ -203,6 +209,10 @@ final class ClipboardStore: ObservableObject {
         items.removeAll()
     }
 
+    func setCaptureEnabled(_ enabled: Bool) {
+        isCaptureEnabled = enabled
+    }
+
     func handleApplicationWillTerminate() {
         guard settings.clearHistoryOnQuit else {
             return
@@ -228,6 +238,40 @@ final class ClipboardStore: ObservableObject {
 
     func copyComposedToPasteboard() {
         writeToPasteboard(composedText)
+    }
+
+    @discardableResult
+    func pasteComposedWithAutomation() -> PasteAutomationResult {
+        let text = composedText
+        guard !text.isEmpty else {
+            lastPasteAutomationResult = .emptyChain
+            return .emptyChain
+        }
+
+        writeToPasteboard(text)
+        let outcome = pasteAutomationService.sendPasteIfPermitted()
+        refreshAccessibilityStatus()
+
+        switch outcome {
+        case .pasted:
+            lastPasteAutomationResult = .pasted
+        case .permissionRequired:
+            lastPasteAutomationResult = .copiedPermissionRequired
+        }
+
+        return lastPasteAutomationResult ?? .emptyChain
+    }
+
+    func refreshAccessibilityStatus(prompt: Bool = false) {
+        isAccessibilityTrusted = pasteAutomationService.isAccessibilityTrusted(prompt: prompt)
+    }
+
+    func requestAccessibilityPermission() {
+        refreshAccessibilityStatus(prompt: true)
+    }
+
+    func openAccessibilitySettings() {
+        pasteAutomationService.openAccessibilitySettings()
     }
 
     func ownsPasteboardText(_ text: String) -> Bool {
@@ -321,6 +365,23 @@ final class ClipboardStore: ObservableObject {
             lastPersistenceError = nil
         } catch {
             lastPersistenceError = error
+        }
+    }
+}
+
+enum PasteAutomationResult: Equatable {
+    case pasted
+    case copiedPermissionRequired
+    case emptyChain
+
+    var message: String {
+        switch self {
+        case .pasted:
+            return "Pasted chain into the active app."
+        case .copiedPermissionRequired:
+            return "Copied chain. Enable Accessibility to auto-paste."
+        case .emptyChain:
+            return "Nothing to paste yet."
         }
     }
 }

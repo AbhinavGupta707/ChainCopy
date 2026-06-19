@@ -22,6 +22,10 @@ struct RootView: View {
                                     store.copyComposedToPasteboard()
                                 }
 
+                                Button("Paste Chain") {
+                                    store.pasteComposedWithAutomation()
+                                }
+
                                 Button(item.isPinned ? "Unpin" : "Pin") {
                                     store.togglePinned(item)
                                 }
