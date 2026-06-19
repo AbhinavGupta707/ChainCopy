@@ -4,6 +4,7 @@
 build/
 dist/
 DerivedData/
+.worktrees/
 
 # XcodeGen output
 ChainCopy.xcodeproj/
