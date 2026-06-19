@@ -8,21 +8,27 @@ final class ClipboardStore: ObservableObject {
     @Published var isCaptureEnabled: Bool
     @Published var maxItemCount: Int
     @Published var separator: String
+    @Published private(set) var isAccessibilityTrusted: Bool
+    @Published private(set) var lastPasteAutomationResult: PasteAutomationResult?
 
     private let composer: ClipboardComposer
+    private let pasteAutomationService: PasteAutomationService
     private var lastPasteboardWrite: String?
 
     init(
         items: [ClipItem] = [],
         isCaptureEnabled: Bool = true,
         maxItemCount: Int = 200,
-        separator: String = "\n"
+        separator: String = "\n",
+        pasteAutomationService: PasteAutomationService = PasteAutomationService()
     ) {
         self.items = items
         self.isCaptureEnabled = isCaptureEnabled
         self.maxItemCount = maxItemCount
         self.separator = separator
         self.composer = ClipboardComposer()
+        self.pasteAutomationService = pasteAutomationService
+        self.isAccessibilityTrusted = pasteAutomationService.isAccessibilityTrusted()
     }
 
     var composedText: String {
@@ -62,6 +68,10 @@ final class ClipboardStore: ObservableObject {
         items.removeAll()
     }
 
+    func setCaptureEnabled(_ enabled: Bool) {
+        isCaptureEnabled = enabled
+    }
+
     func togglePinned(_ item: ClipItem) {
         guard let index = items.firstIndex(where: { $0.id == item.id }) else {
             return
@@ -82,7 +92,58 @@ final class ClipboardStore: ObservableObject {
         lastPasteboardWrite = text
     }
 
+    @discardableResult
+    func pasteComposedWithAutomation() -> PasteAutomationResult {
+        let text = composedText
+        guard !text.isEmpty else {
+            lastPasteAutomationResult = .emptyChain
+            return .emptyChain
+        }
+
+        copyComposedToPasteboard()
+        let outcome = pasteAutomationService.sendPasteIfPermitted()
+        refreshAccessibilityStatus()
+
+        switch outcome {
+        case .pasted:
+            lastPasteAutomationResult = .pasted
+        case .permissionRequired:
+            lastPasteAutomationResult = .copiedPermissionRequired
+        }
+
+        return lastPasteAutomationResult ?? .emptyChain
+    }
+
+    func refreshAccessibilityStatus(prompt: Bool = false) {
+        isAccessibilityTrusted = pasteAutomationService.isAccessibilityTrusted(prompt: prompt)
+    }
+
+    func requestAccessibilityPermission() {
+        refreshAccessibilityStatus(prompt: true)
+    }
+
+    func openAccessibilitySettings() {
+        pasteAutomationService.openAccessibilitySettings()
+    }
+
     func ownsPasteboardText(_ text: String) -> Bool {
         text == lastPasteboardWrite
+    }
+}
+
+enum PasteAutomationResult: Equatable {
+    case pasted
+    case copiedPermissionRequired
+    case emptyChain
+
+    var message: String {
+        switch self {
+        case .pasted:
+            return "Pasted chain into the active app."
+        case .copiedPermissionRequired:
+            return "Copied chain. Enable Accessibility to auto-paste."
+        case .emptyChain:
+            return "Nothing to paste yet."
+        }
     }
 }

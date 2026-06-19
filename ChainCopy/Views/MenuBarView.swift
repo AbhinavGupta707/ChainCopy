@@ -60,11 +60,25 @@ struct MenuBarView: View {
                 .disabled(store.composedText.isEmpty)
 
                 Button {
+                    store.pasteComposedWithAutomation()
+                } label: {
+                    Label("Paste", systemImage: "arrow.down.doc")
+                }
+                .disabled(store.composedText.isEmpty)
+
+                Button {
                     store.clear()
                 } label: {
                     Label("Clear", systemImage: "trash")
                 }
                 .disabled(store.items.isEmpty)
+            }
+
+            if let result = store.lastPasteAutomationResult {
+                Text(result.message)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(2)
             }
 
             SettingsLink {

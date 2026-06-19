@@ -17,13 +17,28 @@ struct ComposerView: View {
 
                 Spacer()
 
-                Button {
-                    store.copyComposedToPasteboard()
-                } label: {
-                    Label("Copy Chain", systemImage: "doc.on.clipboard")
+                HStack {
+                    Button {
+                        store.copyComposedToPasteboard()
+                    } label: {
+                        Label("Copy Chain", systemImage: "doc.on.clipboard")
+                    }
+                    .disabled(store.composedText.isEmpty)
+
+                    Button {
+                        store.pasteComposedWithAutomation()
+                    } label: {
+                        Label("Paste Chain", systemImage: "arrow.down.doc")
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .disabled(store.composedText.isEmpty)
                 }
-                .buttonStyle(.borderedProminent)
-                .disabled(store.composedText.isEmpty)
+            }
+
+            if let result = store.lastPasteAutomationResult {
+                Label(result.message, systemImage: result == .pasted ? "checkmark.circle" : "hand.raised")
+                    .font(.callout)
+                    .foregroundStyle(result == .pasted ? .green : .secondary)
             }
 
             ScrollView {
