@@ -6,6 +6,8 @@ struct ClipboardSettings: Codable, Equatable {
     var maxItemCount: Int
     var maxItemSizeBytes: Int
     var suppressAdjacentDuplicates: Bool
+    var persistClipboardContents: Bool
+    var clearHistoryOnQuit: Bool
     var ignoredAppNames: [String]
     var ignoredAppBundleIdentifiers: [String]
     var ignoredPasteboardTypes: [String]
@@ -17,6 +19,8 @@ struct ClipboardSettings: Codable, Equatable {
         maxItemCount: Int = 100,
         maxItemSizeBytes: Int = 1_000_000,
         suppressAdjacentDuplicates: Bool = true,
+        persistClipboardContents: Bool = false,
+        clearHistoryOnQuit: Bool = true,
         ignoredAppNames: [String] = ClipboardSettings.defaultIgnoredAppNames,
         ignoredAppBundleIdentifiers: [String] = ClipboardSettings.defaultIgnoredAppBundleIdentifiers,
         ignoredPasteboardTypes: [String] = ClipboardSettings.defaultIgnoredPasteboardTypes,
@@ -27,6 +31,8 @@ struct ClipboardSettings: Codable, Equatable {
         self.maxItemCount = Self.clampedItemCount(maxItemCount)
         self.maxItemSizeBytes = Self.clampedItemSize(maxItemSizeBytes)
         self.suppressAdjacentDuplicates = suppressAdjacentDuplicates
+        self.persistClipboardContents = persistClipboardContents
+        self.clearHistoryOnQuit = clearHistoryOnQuit
         self.ignoredAppNames = Self.sanitizedList(ignoredAppNames)
         self.ignoredAppBundleIdentifiers = Self.sanitizedList(ignoredAppBundleIdentifiers)
         self.ignoredPasteboardTypes = Self.sanitizedList(ignoredPasteboardTypes)
@@ -77,18 +83,8 @@ struct ClipboardSettings: Codable, Equatable {
         #"-----BEGIN (RSA |EC |OPENSSH |PGP )?PRIVATE KEY-----"#
     ]
 
-    func normalized() -> ClipboardSettings {
-        ClipboardSettings(
-            isCaptureEnabled: isCaptureEnabled,
-            separator: separator,
-            maxItemCount: maxItemCount,
-            maxItemSizeBytes: maxItemSizeBytes,
-            suppressAdjacentDuplicates: suppressAdjacentDuplicates,
-            ignoredAppNames: ignoredAppNames,
-            ignoredAppBundleIdentifiers: ignoredAppBundleIdentifiers,
-            ignoredPasteboardTypes: ignoredPasteboardTypes,
-            sensitiveContentPatterns: sensitiveContentPatterns
-        )
+    static func sanitizedLines(from text: String) -> [String] {
+        sanitizedList(text.components(separatedBy: .newlines))
     }
 
     static func sanitizedList(_ values: [String]) -> [String] {
@@ -109,11 +105,61 @@ struct ClipboardSettings: Codable, Equatable {
         }
     }
 
+    func normalized() -> ClipboardSettings {
+        ClipboardSettings(
+            isCaptureEnabled: isCaptureEnabled,
+            separator: separator,
+            maxItemCount: maxItemCount,
+            maxItemSizeBytes: maxItemSizeBytes,
+            suppressAdjacentDuplicates: suppressAdjacentDuplicates,
+            persistClipboardContents: persistClipboardContents,
+            clearHistoryOnQuit: clearHistoryOnQuit,
+            ignoredAppNames: ignoredAppNames,
+            ignoredAppBundleIdentifiers: ignoredAppBundleIdentifiers,
+            ignoredPasteboardTypes: ignoredPasteboardTypes,
+            sensitiveContentPatterns: sensitiveContentPatterns
+        )
+    }
+
     private static func clampedItemCount(_ value: Int) -> Int {
         min(max(value, 1), 500)
     }
 
     private static func clampedItemSize(_ value: Int) -> Int {
         min(max(value, 1_024), 10_000_000)
+    }
+}
+extension ClipboardSettings {
+    private enum CodingKeys: String, CodingKey {
+        case isCaptureEnabled
+        case separator
+        case maxItemCount
+        case maxItemSizeBytes
+        case suppressAdjacentDuplicates
+        case persistClipboardContents
+        case clearHistoryOnQuit
+        case ignoredAppNames
+        case ignoredAppBundleIdentifiers
+        case ignoredPasteboardTypes
+        case sensitiveContentPatterns
+    }
+
+    init(from decoder: Decoder) throws {
+        let defaults = ClipboardSettings()
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+
+        self.init(
+            isCaptureEnabled: try container.decodeIfPresent(Bool.self, forKey: .isCaptureEnabled) ?? defaults.isCaptureEnabled,
+            separator: try container.decodeIfPresent(String.self, forKey: .separator) ?? defaults.separator,
+            maxItemCount: try container.decodeIfPresent(Int.self, forKey: .maxItemCount) ?? defaults.maxItemCount,
+            maxItemSizeBytes: try container.decodeIfPresent(Int.self, forKey: .maxItemSizeBytes) ?? defaults.maxItemSizeBytes,
+            suppressAdjacentDuplicates: try container.decodeIfPresent(Bool.self, forKey: .suppressAdjacentDuplicates) ?? defaults.suppressAdjacentDuplicates,
+            persistClipboardContents: try container.decodeIfPresent(Bool.self, forKey: .persistClipboardContents) ?? defaults.persistClipboardContents,
+            clearHistoryOnQuit: try container.decodeIfPresent(Bool.self, forKey: .clearHistoryOnQuit) ?? defaults.clearHistoryOnQuit,
+            ignoredAppNames: try container.decodeIfPresent([String].self, forKey: .ignoredAppNames) ?? defaults.ignoredAppNames,
+            ignoredAppBundleIdentifiers: try container.decodeIfPresent([String].self, forKey: .ignoredAppBundleIdentifiers) ?? defaults.ignoredAppBundleIdentifiers,
+            ignoredPasteboardTypes: try container.decodeIfPresent([String].self, forKey: .ignoredPasteboardTypes) ?? defaults.ignoredPasteboardTypes,
+            sensitiveContentPatterns: try container.decodeIfPresent([String].self, forKey: .sensitiveContentPatterns) ?? defaults.sensitiveContentPatterns
+        )
     }
 }
